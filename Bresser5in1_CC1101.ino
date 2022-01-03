@@ -56,10 +56,11 @@ typedef struct WeatherData_S WeatherData;
 //
 // msg     - Pointer to message
 // msgSize - Size of message
+// pOut    - Pointer to WeatherData
 //
 // Returns:
 //
-// DECODE_OK      - OK
+// DECODE_OK      - OK - WeatherData will contain the updated information
 // DECODE_PAR_ERR - Parity Error
 // DECODE_CHK_ERR - Checksum Error
 //
