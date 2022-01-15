@@ -1,1 +1,4 @@
 .pio
+src/accountKey.json
+src/wifi_details.h
+src/google_service_account.h
