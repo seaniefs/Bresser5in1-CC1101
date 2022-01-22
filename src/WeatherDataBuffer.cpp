@@ -3,7 +3,24 @@
 #include <time.h>
 #include <math.h>
 
+// TODO: Rationalised version - 8 bits free for "reserved" data
+// could record pressure change in 2 bits rising, falling, steady leaving 6 bits
+// Pressure trend - CC      = 00 - Awaiting 01 - Up 10 - Down 11 - Steady
+//                  IIIIIII = 7-bit ID (0-127)
+//                  WWW     = Weather Type 
+//                            0 - Unknown  1 - Sunny  2 - Sunny Cloudy
+//                            3 - Cloudy   4 - Rainy  5 - Worsening
+/*
+	   00       01       02       03		
+	76543210 76543210 76543210 76543210		
+00	YYYYYYYM MMMDDDDD HHHHHMMM MMMSSSSS		
+01  TTTTTTTT 1111RRRR RRRR1111 PPPPPPPP
+02  PPP11112 222HHHHH HHGGGGGG G1111SSS
+03  SSSS1111 DDDDWWWI IIIIIICC --------
+*/
+
 // TODO: Consider only recording 2DP of rain and use other 4 bits to allow 12 bits of rain in mm to be recorded
+//       or weather type in the 4 bits - 
 /*
 	   00       01       02       03		
 	76543210 76543210 76543210 76543210		
@@ -152,7 +169,10 @@ static void internalEncodeWeatherDataEntry(WeatherDataEntry *pDataEntry, uint8_t
 
     uint32_t windGustPacked = (floatToInt32(pDataEntry->weatherData.wind_gust_meter_sec, 0) >> 8) & 0x7FFF;
     uint32_t windSpeedPacked = (floatToInt32(pDataEntry->weatherData.wind_avg_meter_sec, 0) >> 8) & 0x7FFF;
-    uint32_t windDirectionPacked = (uint32_t)((pDataEntry->weatherData.wind_direction_deg + windDirectionRounding) / windDirectionDivision);
+    float    windDirectionRounded = (pDataEntry->weatherData.wind_direction_deg) + windDirectionRounding;
+    windDirectionRounded = fmod(windDirectionRounded, 360);
+    windDirectionRounded /= windDirectionDivision;
+    uint32_t windDirectionPacked = (uint32_t)windDirectionRounded;
     uint32_t tempAndRainfallPacked = tempPacked << 16;
     tempAndRainfallPacked |= (rainfallPacked >> 4) & 0xFFFF;
     uint64_t otherData = 0;

@@ -327,7 +327,7 @@ static bool capture() {
 #endif
 
 static void beginPressureSensor() {
-  if (pressureSensorAvailable()) {
+  if (!pressureSensorAvailable()) {
     Serial.printf("[BMP280] Unavailable - pressure will read as 0.\n");
   }
   else if(initPressureSensor()) {
