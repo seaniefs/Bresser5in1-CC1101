@@ -16,7 +16,7 @@
 00	YYYYYYYM MMMDDDDD HHHHHMMM MMMSSSSS		
 01  TTTTTTTT 1111RRRR RRRR1111 PPPPPPPP
 02  PPP11112 222HHHHH HHGGGGGG G1111SSS
-03  SSSS1111 DDDDWWWI IIIIIICC --------
+03  SSSS1111 DDDDCC-- IIIIIIII WWWWWWWW
 */
 
 // TODO: Consider only recording 2DP of rain and use other 4 bits to allow 12 bits of rain in mm to be recorded
@@ -87,6 +87,7 @@ static float int32ToFloat(uint32_t inputValue, uint32_t bias) {
     return output;
 }
 
+/* Original
 static void internalDecodeWeatherDataEntry(WeatherDataEntry *pDataEntry, uint8_t *pSourceData) {
     // 00	YYYYYYYM MMMDDDDD HHHHHMMM MMMSSSSS		
     uint32_t *pSourceDataArray = (uint32_t *)pSourceData;
@@ -192,6 +193,117 @@ static void internalEncodeWeatherDataEntry(WeatherDataEntry *pDataEntry, uint8_t
     pOutputData[1] = tempAndRainfallPacked;
     pOutputData[3] = otherData & 0xFFFFFFFF;
     pOutputData[2] = (otherData >> 32) & 0xFFFFFFFF;
+}
+*/
+
+static void internalDecodeWeatherDataEntry(WeatherDataEntry *pDataEntry, uint8_t *pSourceData) {
+    // 00	YYYYYYYM MMMDDDDD HHHHHMMM MMMSSSSS
+    uint32_t *pSourceDataArray = (uint32_t *)pSourceData;
+    uint32_t packedTime = *pSourceDataArray;
+    pSourceDataArray++;
+    pDataEntry->second = (packedTime & 0x1F) * 2;
+    packedTime >>= 5;
+    pDataEntry->minute = (packedTime & 0x3F);
+    packedTime >>= 6;
+    pDataEntry->hour = (packedTime & 0x1F);
+    packedTime >>= 5;
+    pDataEntry->day = (packedTime & 0x1F);
+    packedTime >>= 5;
+    pDataEntry->month = (packedTime & 0xF);
+    packedTime >>= 4;
+    pDataEntry->year = (packedTime & 0x7F);
+
+    // 01  TTTTTTTT 1111RRRR RRRR1111 PPPPPPPP
+    uint32_t packedTempAndRain = *pSourceDataArray;
+    pSourceDataArray++;
+
+    uint32_t tempPacked = (packedTempAndRain >> 8) & 0xFFF000;
+    pDataEntry->weatherData.temp_c = int32ToFloat(tempPacked, temperatureBias);
+    uint32_t rainfallPacked = (packedTempAndRain << 4) & 0xFFF000;
+    pDataEntry->weatherData.rain_mm = int32ToFloat(rainfallPacked, 0);
+
+    // 02  PPP11112 222HHHHH HHGGGGGG G1111SSS
+    uint32_t packedPressure = (packedTempAndRain & 0xFF);
+    packedPressure <<= 19;
+    packedPressure |= ((*pSourceDataArray) >> 13) & 0x0007FF00;
+    pDataEntry->weatherData.pressure = int32ToFloat(packedPressure, 0);
+
+    uint32_t humidityPercent = ((*pSourceDataArray) >> 14) & 0x7F;
+    humidityPercent = humidityPercent > 100 ? 100 : humidityPercent;
+    pDataEntry->weatherData.humidity = humidityPercent;
+
+    uint32_t gustPacked = ((*pSourceDataArray) & 0x3FF8) << 9;
+    pDataEntry->weatherData.wind_gust_meter_sec = int32ToFloat(gustPacked, 0);
+
+    uint32_t speedPacked = ((*pSourceDataArray) << 20) & 0x700000;
+    pSourceDataArray++;
+    // Pressure trend and id not yet encoded so not decoded.
+    // 03 SSSS1111 DDDDCC-- IIIIIIII WWWWWWWW
+    speedPacked |= ((*pSourceDataArray) >> 12) & 0xFF000;
+    pDataEntry->weatherData.wind_avg_meter_sec = int32ToFloat(speedPacked, 0);
+
+    uint32_t windDirectionEncoded = ((*pSourceDataArray) & 0xF00000) >> 20;
+    float windDirection = windDirectionEncoded * windDirectionDivision;
+    pDataEntry->weatherData.wind_direction_deg = windDirection;
+
+    pDataEntry->weatherData.forecast = (*pSourceDataArray) & 0xFF;
+}
+
+static void internalEncodeWeatherDataEntry(WeatherDataEntry *pDataEntry, uint8_t *pDestData) {
+    // 00	YYYYYYYM MMMDDDDD HHHHMMMM MMSSSSSS
+    uint32_t packedTime = 0;
+    packedTime |= (pDataEntry->year & 0x7F);
+    packedTime <<= 4;
+    packedTime |= (pDataEntry->month & 0xF);
+    packedTime <<= 5;
+    packedTime |= (pDataEntry->day & 0x1F);
+    packedTime <<= 5;
+    packedTime |= (pDataEntry->hour & 0x1F);
+    packedTime <<= 6;
+    packedTime |= (pDataEntry->minute & 0x3F);
+    packedTime <<= 5;
+    packedTime |= (pDataEntry->second / 2) & 0x1F;
+
+    // 01 TTTTTTTT 1111RRRR RRRR1111 PPPPPPPP
+    uint32_t firstWord = 0;
+    uint32_t tempPacked = floatToInt32(pDataEntry->weatherData.temp_c, temperatureBias);
+    firstWord |= (tempPacked >> 12) & 0xFFF;
+    firstWord <<= 12;
+    firstWord |= (floatToInt32(pDataEntry->weatherData.rain_mm, 0) >> 12) & 0xFFF;
+    firstWord <<= 8;
+    uint32_t pressurePacked = floatToInt32(pDataEntry->weatherData.pressure, 0);
+    //printf("%08X\n", pressurePacked);
+    firstWord |= (pressurePacked >> 19) & 0xFF;
+
+    // 02 PPP11112 222HHHHH HHGGGGGG G1111SSS
+    uint32_t secondWord = ((pressurePacked >> 8) & 0x7FF) << 21;
+
+    uint32_t humidityPercent = pDataEntry->weatherData.humidity;
+    humidityPercent = humidityPercent > 100 ? 100 : humidityPercent;
+
+    secondWord |= (humidityPercent & 0x7F) << 14;
+
+    uint32_t windGustPacked = floatToInt32(pDataEntry->weatherData.wind_gust_meter_sec, 0);
+    secondWord |= (windGustPacked >> 9) & 0x3FF8;
+
+    uint32_t windSpeedPacked = floatToInt32(pDataEntry->weatherData.wind_avg_meter_sec, 0);
+    secondWord |= (windSpeedPacked >> 20) & 0x7;
+
+    // 03 SSSS1111 DDDDCC-- IIIIIIII WWWWWWWW
+    uint32_t thirdWord = (windSpeedPacked << 12) & 0xFF000000;
+
+    float    windDirectionRounded = (pDataEntry->weatherData.wind_direction_deg) + windDirectionRounding;
+    windDirectionRounded = fmod(windDirectionRounded, 360);
+    windDirectionRounded /= windDirectionDivision;
+    uint32_t windDirectionPacked = (uint32_t)windDirectionRounded;
+    thirdWord |= (windDirectionPacked << 20) & 0xF00000;
+    thirdWord |= (pDataEntry->weatherData.forecast & 0xFF);
+
+    uint32_t *pOutputData = (uint32_t *)pDestData;
+    pOutputData[0] = packedTime;
+    pOutputData[1] = firstWord;
+    pOutputData[2] = secondWord;
+    pOutputData[3] = thirdWord;
 }
 
 static bool internalReadNextWeatherDataEntry(WeatherDataEntry *pDataEntry, bool advancePointer) {

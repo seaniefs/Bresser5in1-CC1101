@@ -14,6 +14,7 @@
         float   rain_mm;
         float   pressure;
         bool    battery_ok;
+        int     forecast;
     } WeatherData;
 
     typedef struct WeatherDataEntry_S {

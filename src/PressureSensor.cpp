@@ -5,7 +5,7 @@
 static bool pressureSensorInit = false;
 
 #ifdef ENABLE_PRESSURE_SENSOR
-    #pragma message("Pressure sensor enabled in build!");
+    #pragma message("Pressure sensor enabled in build!")
 
     static BMP280_DEV *bmp280 = nullptr;
 
@@ -30,7 +30,7 @@ static bool pressureSensorInit = false;
             nDevices++;
             }
             else if (error==4) {
-            Serial.print("Unknow error at address 0x");
+            Serial.print("Unknown error at address 0x");
             if (address<16) {
                 Serial.print("0");
             }

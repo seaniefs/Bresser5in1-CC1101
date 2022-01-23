@@ -21,6 +21,7 @@ https://github.com/merbanan/rtl_433/blob/master/src/devices/bresser_5in1.c
 #include "GoogleSheets.h"
 #include "WeatherDataBuffer.h"
 #include "PressureSensor.h"
+#include "WeatherPredictions.h"
 
 CC1101 radio = new Module(PIN_CC1101_CS, PIN_CC1101_GDO0, RADIOLIB_NC, PIN_CC1101_GDO2);
 
@@ -144,6 +145,7 @@ static bool emitBufferedDataEntry() {
     static char gust[12];
     static char direction[12];
     static char pressure[12];
+    static char forecast[12];
     sprintf(dateItem, "%02d/%02d/%02d", dataEntry.year, dataEntry.month, dataEntry.day);
     sprintf(timeItem, "%02d:%02d:%02d", dataEntry.hour, dataEntry.minute, dataEntry.second);
     sprintf(timestampItem, "%02d-%02d-%02dT%02d:%02d:%02dZ",
@@ -156,6 +158,7 @@ static bool emitBufferedDataEntry() {
     sprintf(gust, "%.2f", dataEntry.weatherData.wind_gust_meter_sec);
     sprintf(direction, "%.2f", dataEntry.weatherData.wind_direction_deg);
     sprintf(pressure, "%.2f", dataEntry.weatherData.pressure);
+    sprintf(forecast, "%d", dataEntry.weatherData.forecast);
     SheetDataItem rowData[] = {
       { dateItem, false },
       { timeItem, false },
@@ -166,7 +169,8 @@ static bool emitBufferedDataEntry() {
       { wind, true },
       { gust, true },
       { direction, true },
-      { pressure,  true }
+      { pressure,  true },
+      { forecast,  true }
     };
     if(appendRowToSheet(rowData, sizeof(rowData) / sizeof(SheetDataItem))) {
       confirmPeekWeatherDataEntry(entryRead);
@@ -268,20 +272,33 @@ static bool capture() {
 
           // Decode the information - skip the last sync byte we use to check the data is OK
           WeatherData weatherData = { 0 };
+          weatherData.forecast = 0;
           if(decodeBresser5In1Payload(&recvData[1], sizeof(recvData) - 1, &weatherData) == DECODE_OK) {
+
+            struct tm timeinfo = {0};
+            getLocalTime(&timeinfo);
 
             // If pressure is available - read it
             if(pressureSensorAvailable()) {
-              readPressureSensorHpa(weatherData.pressure);
+              float rawPressureData = 0;
+              readPressureSensorHpa(rawPressureData);
+              weatherData.pressure = altitudeNormalizedPressure(rawPressureData, weatherData.temp_c);
+              recordPressureReading(weatherData.pressure);
+              CastOutput outputCast = { 0 };
+              if( generateForecast(outputCast, timeinfo.tm_mon + 1, weatherData.wind_direction_deg, Hemisphere::_HEMISPHERE_) ) {
+                if (outputCast.ready) {
+                  Serial.print(outputCast.extremeWeatherForecast ? "!! Extreme Weather " : "");
+                  Serial.println(outputCast.forecastText != nullptr ? outputCast.forecastText : "No forecast");
+                  weatherData.forecast = (outputCast.output + 1) + 50;
+                }
+              }
             }
 
             const float METERS_SEC_TO_MPH = 2.237;
             char dateTime[24];
-            struct tm timeinfo = {0};
-            getLocalTime(&timeinfo);
             strftime(dateTime, 20, "%y-%m-%dT%H:%M:%S", &timeinfo);
 
-            printf("[%s] [Bresser-5in1 (%d)] Batt: [%s] Temp: [%.1fC] Hum: [%d] WGust: [%.1f mph] WSpeed: [%.1f mph] WDir: [%.1f] Rain [%.1f mm] Pressure: [%.1f hPa]\n",
+            printf("[%s] [Bresser-5in1 (%d)] Batt: [%s] Temp: [%.1fC] Hum: [%d] WGust: [%.1f mph] WSpeed: [%.1f mph] WDir: [%.1f] Rain [%.1f mm] Pressure: [%.1f hPa] Forecast: [%d]\n",
                   dateTime,
                   weatherData.sensor_id,
                   weatherData.battery_ok ? "OK" : "Low",
@@ -290,7 +307,8 @@ static bool capture() {
                   weatherData.wind_gust_meter_sec * METERS_SEC_TO_MPH,
                   weatherData.wind_avg_meter_sec * METERS_SEC_TO_MPH,
                   weatherData.wind_direction_deg, weatherData.rain_mm,
-                  weatherData.pressure);
+                  weatherData.pressure,
+                  weatherData.forecast);
             appendWeatherDataEntry(weatherData);
             captured = true;
           }
