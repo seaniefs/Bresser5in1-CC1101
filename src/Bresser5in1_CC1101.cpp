@@ -137,7 +137,7 @@ static bool emitBufferedDataEntry() {
     // OK - now need to emit a row...
     static char dateItem[12];
     static char timeItem[12];
-    static char timestampItem[26];
+    static char timestampItem[20];
     static char humidity[12];
     static char rain[12];
     static char temp[12];
@@ -148,9 +148,10 @@ static bool emitBufferedDataEntry() {
     static char forecast[12];
     sprintf(dateItem, "%02d/%02d/%02d", dataEntry.year, dataEntry.month, dataEntry.day);
     sprintf(timeItem, "%02d:%02d:%02d", dataEntry.hour, dataEntry.minute, dataEntry.second);
-    sprintf(timestampItem, "%02d-%02d-%02dT%02d:%02d:%02dZ",
-            dataEntry.year, dataEntry.month, dataEntry.day,
-            dataEntry.hour, dataEntry.minute, dataEntry.second);
+    sprintf(timestampItem, "%02d-%02d-%02d", dataEntry.year, dataEntry.month, dataEntry.day);
+    strcat(timestampItem, "T");
+    strcat(timestampItem, timeItem);
+    strcat(timestampItem, "Z");
     sprintf(humidity, "%.2f", (float) dataEntry.weatherData.humidity);
     sprintf(rain, "%.3f", dataEntry.weatherData.rain_mm);
     sprintf(temp, "%.2f", dataEntry.weatherData.temp_c);
@@ -287,15 +288,15 @@ static bool capture() {
               CastOutput outputCast = { 0 };
               if( generateForecast(outputCast, timeinfo.tm_mon + 1, weatherData.wind_direction_deg, Hemisphere::_HEMISPHERE_) ) {
                 if (outputCast.ready) {
-                  Serial.print(outputCast.extremeWeatherForecast ? "!! Extreme Weather " : "");
-                  Serial.println(outputCast.forecastText != nullptr ? outputCast.forecastText : "No forecast");
-                  weatherData.forecast = (outputCast.output + 1) + 50;
+                  //Serial.print(outputCast.extremeWeatherForecast ? "!! Extreme Weather " : "");
+                  //Serial.println(outputCast.forecastText != nullptr ? outputCast.forecastText : "No forecast");
+                  weatherData.forecast = outputCast.output + (outputCast.extremeWeatherForecast ? 51 : 1);
                 }
               }
             }
 
             const float METERS_SEC_TO_MPH = 2.237;
-            char dateTime[24];
+            static char dateTime[24];
             strftime(dateTime, 20, "%y-%m-%dT%H:%M:%S", &timeinfo);
 
             printf("[%s] [Bresser-5in1 (%d)] Batt: [%s] Temp: [%.1fC] Hum: [%d] WGust: [%.1f mph] WSpeed: [%.1f mph] WDir: [%.1f] Rain [%.1f mm] Pressure: [%.1f hPa] Forecast: [%d]\n",
