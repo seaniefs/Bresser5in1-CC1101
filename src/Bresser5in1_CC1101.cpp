@@ -12,7 +12,6 @@ https://github.com/merbanan/rtl_433/blob/master/src/devices/bresser_5in1.c
 
 15/01/22 - Sean Siford
 */
-
 #include <Arduino.h>
 #include <RadioLib.h>
 #include <stdint.h>
@@ -40,9 +39,12 @@ typedef enum SamplingState {
 
 static SamplingState samplingState = INITIAL_WIFI_CONNECTION;
 static const int     sleepTimeMinutes = 10;
+static const int     intermediateSleepTimeMinutes = 2;
 static int32_t       wifiReinitAttempts = 0;
 static uint64_t      targetWakeTime = 0; // YYMMDDMM
+static bool          intermediateReading = false;
 static bool          lightSlept = false;
+static uint32_t      lastFreeHeap = 0;
 
 // Cribbed from rtl_433 project - but added extra checksum to verify uu
 //
@@ -253,7 +255,7 @@ static bool send() {
 //#define _EMULATE_RECV_
 
 #ifndef _EMULATE_RECV_
-static bool capture() {
+static bool capture(bool intermediateReading) {
     bool captured = false;
     uint8_t recvData[27];
     int state = radio.receive(recvData, 27);
@@ -284,13 +286,20 @@ static bool capture() {
               float rawPressureData = 0;
               readPressureSensorHpa(rawPressureData);
               weatherData.pressure = altitudeNormalizedPressure(rawPressureData, weatherData.temp_c);
-              recordPressureReading(weatherData.pressure);
-              CastOutput outputCast = { 0 };
-              if( generateForecast(outputCast, timeinfo.tm_mon + 1, weatherData.wind_direction_deg, Hemisphere::_HEMISPHERE_) ) {
-                if (outputCast.ready) {
-                  //Serial.print(outputCast.extremeWeatherForecast ? "!! Extreme Weather " : "");
-                  //Serial.println(outputCast.forecastText != nullptr ? outputCast.forecastText : "No forecast");
-                  weatherData.forecast = outputCast.output + (outputCast.extremeWeatherForecast ? 51 : 1);
+              if (!intermediateReading) {
+                recordPressureReading(weatherData.pressure);
+                CastOutput outputCast = { 0 };
+
+                // TODO: Need to take into account average
+                const WindDirection windDirection = weatherData.wind_avg_meter_sec < 0.5
+                                                    && weatherData.wind_gust_meter_sec < 0.5 
+                                                    ? WindDirection::CALM
+                                                    : degreesToWindDirection(weatherData.wind_direction_deg);
+
+                if( generateForecast(outputCast, timeinfo.tm_mon + 1, windDirection, Hemisphere::_HEMISPHERE_) ) {
+                  if (outputCast.ready) {
+                    weatherData.forecast = outputCast.output + (outputCast.extremeWeatherForecast ? 51 : 1);
+                  }
                 }
               }
             }
@@ -310,7 +319,13 @@ static bool capture() {
                   weatherData.wind_direction_deg, weatherData.rain_mm,
                   weatherData.pressure,
                   weatherData.forecast);
-            appendWeatherDataEntry(weatherData);
+            // If this is an intermediate reading, then record that, else it's a main reading...
+            if (intermediateReading) {
+              recordIntermediateReading(weatherData);
+            }
+            else {
+              appendWeatherDataEntry(weatherData);
+            }
             captured = true;
           }
       }
@@ -331,7 +346,7 @@ static bool capture() {
     return captured;
 }
 #else
-static bool capture() {
+static bool capture(bool intermediateReading) {
     WeatherData weatherData = { 0 };
     weatherData.humidity = 50;
     weatherData.pressure = 1024.4;
@@ -340,7 +355,59 @@ static bool capture() {
     weatherData.wind_direction_deg = 90.0;
     weatherData.wind_avg_meter_sec = 0.3;
     weatherData.wind_gust_meter_sec = 1.0;
-    appendWeatherDataEntry(weatherData);
+
+    delay(12000);
+
+    struct tm timeinfo = {0};
+    getLocalTime(&timeinfo);
+    // If pressure is available - read it
+    if(pressureSensorAvailable()) {
+      float rawPressureData = 0;
+      readPressureSensorHpa(rawPressureData);
+      weatherData.pressure = altitudeNormalizedPressure(rawPressureData, weatherData.temp_c);
+      if (!intermediateReading) {
+        recordPressureReading(weatherData.pressure);
+        CastOutput outputCast = { 0 };
+
+        // TODO: Need to take into account average
+        const WindDirection windDirection = weatherData.wind_avg_meter_sec < 0.5
+                                            && weatherData.wind_gust_meter_sec < 0.5 
+                                            ? WindDirection::CALM
+                                            : degreesToWindDirection(weatherData.wind_direction_deg);
+
+        if( generateForecast(outputCast, timeinfo.tm_mon + 1, windDirection, Hemisphere::_HEMISPHERE_) ) {
+          if (outputCast.ready) {
+            weatherData.forecast = outputCast.output + (outputCast.extremeWeatherForecast ? 51 : 1);
+          }
+        }
+      }
+    }
+
+    const float METERS_SEC_TO_MPH = 2.237;
+    static char dateTime[24];
+    strftime(dateTime, 20, "%y-%m-%dT%H:%M:%S", &timeinfo);
+
+    Serial.printf("[%s] [Bresser-5in1 (%d)] Batt: [%s] Temp: [%.1fC] Hum: [%d] WGust: [%.1f mph] WSpeed: [%.1f mph] WDir: [%.1f] Rain [%.1f mm] Pressure: [%.1f hPa] Forecast: [%d]\n",
+          dateTime,
+          weatherData.sensor_id,
+          weatherData.battery_ok ? "OK" : "Low",
+          weatherData.temp_c,
+          weatherData.humidity,
+          weatherData.wind_gust_meter_sec * METERS_SEC_TO_MPH,
+          weatherData.wind_avg_meter_sec * METERS_SEC_TO_MPH,
+          weatherData.wind_direction_deg, weatherData.rain_mm,
+          weatherData.pressure,
+          weatherData.forecast);
+    // If this is an intermediate reading, then record that, else it's a main reading...
+    if (intermediateReading) {
+      Serial.printf("Record Intermediate Reading\n");
+      recordIntermediateReading(weatherData);
+    }
+    else {
+      Serial.printf("Append Reading\n");
+      appendWeatherDataEntry(weatherData);
+    }
+    Serial.printf("Done\n");
     return true;
 }
 #endif
@@ -400,24 +467,33 @@ void setup() {
     initCC1101();
     beginPressureSensor();
     setHostname("ESP32-WeatherMonitor");
+    auto reset_reason = esp_reset_reason();
+    auto initialBoot = true;
+    if(reset_reason == ESP_RST_SW || reset_reason != ESP_RST_DEEPSLEEP) {
+      initialBoot = false;
+    }
     initWeatherDataBuffer();
+    initWeatherPredictionsBuffer(initialBoot);
     setWifiConnectionDetails(WIFI_SSID, WIFI_PASSWORD);
+    lastFreeHeap = ESP.getFreeHeap();
 }
 
 void loop() {
 
     switch(samplingState) {
       case INITIAL_WIFI_CONNECTION:
+        Serial.printf("INITIAL_WIFI_CONNECTION\n");
         if(handleWifiConnection()) {
           samplingState = SLEEP_UNTIL_TIME_SLOT;
           Serial.printf("Connected to WiFi - OK\n");
         }
         break;
       case REINIT_WIFI_CONNECTION:
+        Serial.printf("REINIT_WIFI_CONNECTION\n");
         if (handleWifiConnection()) {
-          samplingState = CAPTURE_WEATHER_DATA;
+          samplingState = AWAIT_TIME_SLOT;
           if (lightSlept == true) {
-            Serial.printf("Connected to WiFi - OK - waiting a few seconds for time sync\n");
+            Serial.printf("Connected to WiFi - OK - waiting for time sync\n");
             lightSlept = false;
             for(int i = 0 ; i < 10 ; i++) {
               delay(1000);
@@ -426,25 +502,26 @@ void loop() {
           }
         }
         else {
-          // Allow up to 20 seconds to get a WiFi connection
-          if (wifiReinitAttempts < 40) {
+          // Allow up to 60 seconds to get a WiFi connection and time sync
+          if (wifiReinitAttempts < 120) {
             delay(500);
             wifiReinitAttempts += 1;
             Serial.printf(".");
           }
           // Have we time synced?
-          else if(getTime() >= (24 * 60 * 60 * 21)) {
+          else if(getTime() >= (24 * 60 * 60 * 30)) {
             samplingState = AWAIT_TIME_SLOT;
-            Serial.printf("Cannot connect to WiFi but time synced - so continuing...\n");
+            Serial.printf("Time synced previously - assuming OK but we might get clock drift...\n");
           }
           else {
             samplingState = SLEEP_UNTIL_TIME_SLOT;
-            Serial.printf("Cannot connect to WiFi but time not synced so waiting for WiFi as times would be wrong...\n");
+            Serial.printf("Connected to WiFi but time not synced so waiting for WiFi as times would be wrong...\n");
           }
         }
         break;
       case AWAIT_TIME_SLOT: {
           struct tm timeinfo;
+          Serial.printf("AWAIT_TIME_SLOT\n");
           if(getLocalTime(&timeinfo)) {
             uint64_t currentTime = assembleTargetTime(timeinfo, 0);
             if (currentTime >= targetWakeTime) {
@@ -459,13 +536,25 @@ void loop() {
         }
         break;
       case CAPTURE_WEATHER_DATA: {
-          if(capture()) {
-            Serial.printf("Captured data - signalling sending.\n");
-            samplingState = SEND_WEATHER_DATA;
+          Serial.printf("CAPTURE_WEATHER_DATA\n");
+          if(capture(intermediateReading)) {
+            if (intermediateReading) {
+              Serial.printf("Intermediate reading - sleeping until next time slot.\n");
+              samplingState = SLEEP_UNTIL_TIME_SLOT;
+            }
+            else {
+              Serial.printf("Captured data - signalling sending.\n");
+              samplingState = SEND_WEATHER_DATA;
+            }
+          }
+          else {
+              Serial.printf("Capture failed?!\n");
+              delay(1000);
           }
         }
         break;
       case SEND_WEATHER_DATA: {
+          Serial.printf("SEND_WEATHER_DATA\n");
           Serial.printf("Attempting to send data...\n");
           send();
           Serial.printf("Attempted to send data - signalling sleep.\n");
@@ -473,26 +562,68 @@ void loop() {
         }
         break;
       case SLEEP_UNTIL_TIME_SLOT: {
+          Serial.printf("SLEEP_UNTIL_TIME_SLOT\n");
           struct tm timeinfo;
           if(getLocalTime(&timeinfo)) {
-            uint64_t minutesToWait = sleepTimeMinutes - (timeinfo.tm_min % sleepTimeMinutes);
-            uint64_t secondsToWait = minutesToWait * 60;
-            secondsToWait -= timeinfo.tm_sec;
-            targetWakeTime = assembleTargetTime(timeinfo, minutesToWait);
-            if (secondsToWait >= 30) {
-              samplingState = REINIT_WIFI_CONNECTION;
-              wifiReinitAttempts = 0;
-              Serial.printf("Awaiting time to capture: [%lld].\n", targetWakeTime);
-              Serial.printf("Sleeping for %llu second(s) until next timeslot - night night!\n", secondsToWait);
-              disconnectWifi();
-              delay(1000);
-              lightSlept = true;
-              esp_sleep_enable_timer_wakeup(secondsToWait * 1000000L);
-              esp_light_sleep_start();
+            // Sleep until the next 2 minute window
+            uint64_t sleepSeconds = 0;
+            uint64_t timeNow = assembleTargetTime(timeinfo, 0);
+            if (timeNow < targetWakeTime) {
+              // OK - we have some time skew which means that we have awoken earlier than expected;
+              // wait for 1 minute and see we're still too early...
+              Serial.printf("Now [%lld] - still before time to capture: [%lld] - sleeping for 60 seconds.\n", timeNow, targetWakeTime);
+              sleepSeconds = 60;
             }
             else {
-              // Await the time slot...
-              samplingState = AWAIT_TIME_SLOT;
+              uint64_t minutesToWait = intermediateSleepTimeMinutes - (timeinfo.tm_min % intermediateSleepTimeMinutes);
+              uint64_t mainReadingMinutes = sleepTimeMinutes - (timeinfo.tm_min % sleepTimeMinutes);
+              // Is this is an intermediate reading?
+              intermediateReading = mainReadingMinutes != minutesToWait;
+              uint64_t secondsToWait = minutesToWait * 60;
+              secondsToWait -= timeinfo.tm_sec;
+              targetWakeTime = assembleTargetTime(timeinfo, minutesToWait);
+              sleepSeconds = secondsToWait < 10 ? 10 : secondsToWait;
+            }
+            if (sleepSeconds > 0) {
+                wifiReinitAttempts = 0;
+                Serial.printf("Awaiting time to capture: [%lld].\n", targetWakeTime);
+                disconnectWifi();
+                lightSlept = true;
+                if (intermediateReading) {
+                  samplingState = AWAIT_TIME_SLOT;
+                }
+                else {
+                  samplingState = REINIT_WIFI_CONNECTION;
+                }
+                uint32_t freeHeapNow = ESP.getFreeHeap();
+                Serial.printf("Free Heap: [%u] [%d]", freeHeapNow, ((int32_t)freeHeapNow) - ((int32_t)lastFreeHeap));
+                lastFreeHeap = freeHeapNow;
+                esp_sleep_enable_timer_wakeup(sleepSeconds * 1000000L);
+                // If next time we wake it will be midnight - then perform a deep-sleep, which would effectively
+                // re-boot - because of the memory leak issue, unless we have weather data entries we've not uploaded,
+                // in which case light sleep.
+                if ((targetWakeTime % 10000) == 0 && getTotalWeatherDataEntries() == 0) {
+                  Serial.printf("Deep sleeping for %llu second(s) until next timeslot - night night!\n", sleepSeconds);
+                  delay(100);
+                  esp_deep_sleep_start();
+                }
+                else {
+                  Serial.printf("Light sleeping for %llu second(s) until next timeslot - night night!\n", sleepSeconds);
+                  delay(100);
+                  esp_light_sleep_start();
+                }
+            }
+            else {
+              // If we light slept and this is not an intermediate reading,
+              // then need to re-initialise the wifi connection, because we're going to upload data,
+              // else just wait for the time slot because wifi is enabled, or it's an intermediate reading, so
+              // we don't need to.
+              if (lightSlept && !intermediateReading) {
+                samplingState = REINIT_WIFI_CONNECTION;
+              }
+              else {
+                samplingState = AWAIT_TIME_SLOT;
+              }
             }
           }
         }

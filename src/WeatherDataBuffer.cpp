@@ -52,6 +52,12 @@ static volatile int writePosition = 0;
 static volatile float    startOfDayRainMm = 0;
 static volatile uint32_t startOfDayRainMmDay = 0;
 
+// Can use this to perform averaged readings
+static volatile int accumulatedReadings = 0;
+static volatile double accumulatedSpeed = 0;
+static volatile double accumulatedGust = 0;
+static volatile double accumulatedTemp = 0;
+
 static void internalLimitWeatherDataIndexes() {
     if(readPosition >= totalEntries) {
         readPosition = 0;
@@ -320,8 +326,16 @@ static bool internalReadNextWeatherDataEntry(WeatherDataEntry *pDataEntry, bool 
     return itemRead;
 }
 
+static void resetAccumulatedReadings() {
+    accumulatedReadings = 0;
+    accumulatedSpeed = 0;
+    accumulatedGust = 0;
+    accumulatedTemp = 0;
+}
+
 void initWeatherDataBuffer() {
     _lock = xSemaphoreCreateMutex();
+    resetAccumulatedReadings();
 }
 
 bool peekNextWeatherDataEntry(WeatherDataEntry *pDataEntry, uint32_t *pEntryRead) {
@@ -355,8 +369,27 @@ void confirmPeekWeatherDataEntry(uint32_t entryRead) {
     }
 }
 
-void appendWeatherDataEntry(WeatherData weatherData) {
+static void internalRecordIntermediateReading(WeatherData weatherData) {
+    accumulatedGust += weatherData.wind_gust_meter_sec;
+    accumulatedSpeed += weatherData.wind_avg_meter_sec;
+    accumulatedTemp += weatherData.temp_c;
+    accumulatedReadings += 1;    
+}
+
+void recordIntermediateReading(WeatherData weatherData) {
+    Serial.printf("Record Intermediate - About to Acquire Semaphore\n");
     if(xSemaphoreTake(_lock, portMAX_DELAY) == pdTRUE) {
+        Serial.printf("Record Intermediate - Acquired Semaphore\n");
+        internalRecordIntermediateReading(weatherData);
+        xSemaphoreGive(_lock);
+        Serial.printf("Record Intermediate - Released Semaphore\n");
+    }
+}
+
+void appendWeatherDataEntry(WeatherData weatherData) {
+    Serial.printf("Append - About to get Semaphore\n");
+    if(xSemaphoreTake(_lock, portMAX_DELAY) == pdTRUE) {
+        Serial.printf("Append - Got Semaphore\n");
         // If full then remove last entry...
         if(itemsInUse == totalEntries) {
             WeatherDataEntry dummyEntry;
@@ -365,6 +398,8 @@ void appendWeatherDataEntry(WeatherData weatherData) {
         WeatherDataEntry tempEntry;
         time_t t = time(NULL);
         struct tm tm = *gmtime(&t);
+        // Record the wind gust/speed and temp as an intermediate reading...
+        internalRecordIntermediateReading(weatherData);
         tempEntry.day = (uint8_t) tm.tm_mday;
         tempEntry.month = (uint8_t) tm.tm_mon + 1;   // 0 is January
         tempEntry.year = (uint8_t) tm.tm_year - 100; // years since 1900
@@ -385,11 +420,17 @@ void appendWeatherDataEntry(WeatherData weatherData) {
             Serial.printf("Resetting rain mm for: %06d relative to %.2f\n", startOfDayRainMmDay, startOfDayRainMm);
         }
         tempEntry.weatherData.rain_mm -= startOfDayRainMm;
+        // Need to determine values for average temp/gust/speed
+        tempEntry.weatherData.wind_avg_meter_sec = accumulatedSpeed / accumulatedReadings;
+        tempEntry.weatherData.wind_gust_meter_sec = accumulatedGust / accumulatedReadings;
+        tempEntry.weatherData.temp_c = accumulatedTemp / accumulatedReadings;
         internalEncodeWeatherDataEntry(&tempEntry, &weatherDataEntryArray[writePosition][0]);
         itemsInUse++;
         writePosition++;
         internalLimitWeatherDataIndexes();
+        resetAccumulatedReadings();
         xSemaphoreGive(_lock);
+        Serial.printf("Append - Released Semaphore\n");
     }
     else {
         Serial.printf("Failed to acquire semaphore in: %s\n", __func__);

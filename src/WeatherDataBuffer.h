@@ -28,6 +28,7 @@
     } WeatherDataEntry;
 
     void initWeatherDataBuffer();
+    void recordIntermediateReading(WeatherData weatherData);
     void appendWeatherDataEntry(WeatherData weatherData);
     int  getTotalWeatherDataEntries();
     bool readNextWeatherDataEntry(WeatherDataEntry *pDataEntry);

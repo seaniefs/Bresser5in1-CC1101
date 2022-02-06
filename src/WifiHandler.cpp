@@ -24,6 +24,17 @@ volatile bool     ntpTimeSet = false;
 volatile uint64_t lastNtpClockCheck = 0;
 volatile BearSSLClient *pSslClient = nullptr;
 
+static void time_sync_complete(struct timeval *tv) {
+  if(tv->tv_sec > (24 * 60 * 60)) {
+    struct tm *gm = gmtime(&tv->tv_sec);
+    Serial.printf("Time has been synced: [%02d/%02d/%02d - %02d:%02d]\n", gm->tm_year - 100, gm->tm_mon + 1, gm->tm_mday, gm->tm_hour, gm->tm_min);
+    ntpTimeSet = true;
+  }
+  else {
+    ntpTimeSet = false;
+  }
+}
+
 void printWiFiStatus() {
   // print the SSID of the network you're attached to:
   Serial.print("SSID: ");
@@ -220,6 +231,7 @@ bool handleWifiConnection() {
       ntpTimeSet = false;
       return false;
     }
+    // Wait for callback...
     else if (!ntpTimeSet) {
       if ((millis() - lastNtpClockCheck) > 5000) {
         lastNtpClockCheck = millis();

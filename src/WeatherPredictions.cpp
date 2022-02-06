@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdio.h>
+#include <Arduino.h>
 #include "WeatherPredictions.h"
 
 /* Testing
@@ -7,16 +8,16 @@
     #define _HEMISPHERE_ NORTH
 #endif
 
-#ifndef ALTITUDE_IN_METRES
-  #define ALTITUDE_IN_METRES 64.0
+#ifndef _ALTITUDE_IN_METRES_
+  #define _ALTITUDE_IN_METRES_ 64.0
 #endif
 
-#ifndef BAROMETER_LOW_HPA
-  #define BAROMETER_LOW_HPA 950.0
+#ifndef _BAROMETER_LOW_HPA_
+  #define _BAROMETER_LOW_HPA_ 950.0
 #endif
 
-#ifndef BAROMETER_HIGH_HPA
-  #define BAROMETER_HIGH_HPA 1050.0
+#ifndef _BAROMETER_HIGH_HPA_
+  #define _BAROMETER_HIGH_HPA_ 1050.0
 #endif
 */
 
@@ -28,13 +29,13 @@
 
 // NOTE: Assumes 6 readings an hour; naive and needs to be configurable!
 const int        normalizedPressureArrayItems = 18;
-static float     normalizedPressureArray[normalizedPressureArrayItems] = { 0 };
-static int       nextWritingIndex = 0;
-static int       recordedReadings = 0;
+/*RTC_NOINIT_ATTR*/ static float     normalizedPressureArray[normalizedPressureArrayItems] = { 0 };
+/*RTC_NOINIT_ATTR*/ static int       nextWritingIndex = 0;
+/*RTC_NOINIT_ATTR*/ static int       recordedReadings = 0;
 
 // ---- 'environment' variables ------------
-const float ukBaroTop = BAROMETER_HIGH_HPA;	    // upper limits of your local 'weather window' (1050.0 hPa for UK)
-const float ukBaroBottom = BAROMETER_LOW_HPA;	// lower limits of your local 'weather window' (950.0 hPa for UK)
+const float ukBaroTop = _BAROMETER_HIGH_HPA_;	// upper limits of your local 'weather window' (1050.0 hPa for UK)
+const float ukBaroBottom = _BAROMETER_LOW_HPA_;	// lower limits of your local 'weather window' (950.0 hPa for UK)
 
 static const char *forecastText[] = { 
     "Settled fine", "Fine weather", "Becoming fine",
@@ -60,8 +61,20 @@ static const int fall_options[] = {
     25,25,25,25,25,25,25,25,23,23,21,20,17,14,7,3,1,1,1,0,0,0
 };
 
+void initWeatherPredictionsBuffer(bool initialBoot) {
+    //if (initialBoot) {
+        Serial.println("Initializing weather predictions buffer...\n");
+        memset(normalizedPressureArray, 0, sizeof(normalizedPressureArrayItems));
+        nextWritingIndex = 0;
+        recordedReadings = 0;
+    //}
+    //else {
+    //    Serial.println("Not initializing weather predictions buffer; subsequent boot...\n");
+    //}
+}
+
 float altitudeNormalizedPressure(float pressureInHpa, float tempInC) {
-    float altitudeMultiplier = (0.0065 * ALTITUDE_IN_METRES);
+    float altitudeMultiplier = (0.0065 * _ALTITUDE_IN_METRES_);
     float normalizedPressure = pressureInHpa * pow(1 - altitudeMultiplier / (tempInC + altitudeMultiplier + 273.15), -5.257);
     return normalizedPressure;
 }
@@ -93,7 +106,6 @@ PressureTrend calculatePressureTrend() {
     if (recordedReadings < normalizedPressureArrayItems) {
         return PressureTrend::UNKNOWN;
     }
-    const int averagedItems = 3;
     int initialReadIndex = nextWritingIndex;
     int finalReadIndex = nextWritingIndex - 1;
     float initialPressure = normalizedPressureArray[initialReadIndex];
@@ -101,11 +113,14 @@ PressureTrend calculatePressureTrend() {
         finalReadIndex += normalizedPressureArrayItems;
     }
     float finalPressure = normalizedPressureArray[finalReadIndex];
-    float difference = finalPressure - initialPressure;
-    if (difference <= -1.6) {
+
+    // Numbers used from CumulusMX...
+    float difference = (finalPressure - initialPressure) / 3.0;
+
+    if (difference < -0.1) {
         return PressureTrend::DOWN;
     }
-    else if (difference >= 1.6) {
+    else if (difference > 0.1) {
         return PressureTrend::UP;
     }
     return PressureTrend::STEADY;
@@ -170,6 +185,9 @@ CastOutput betel_cast( float normalizedHpa, int month,
             case WindDirection::NNW:
                 normalizedHpa += 3 / 100.0 * baroRange ;  
                 break;
+            case WindDirection::CALM:
+                // Nada
+                break;
 		} 
 		if (isSummer) {  	// if Summer
 			if (pressureTrend == PressureTrend::UP) {  	// rising
@@ -228,6 +246,9 @@ CastOutput betel_cast( float normalizedHpa, int month,
             case WindDirection::SSE:
                 normalizedHpa += 3 / 100.0 * baroRange ;  
                 break; 
+            case WindDirection::CALM:
+                // Nada
+                break;
         }
 		if (!isSummer) { 	// if Winter
 			if (pressureTrend == PressureTrend::UP) {  // rising
@@ -283,11 +304,6 @@ WindDirection degreesToWindDirection(float windDir) {
     windDirectionRounded /= windDirectionDivision;
     WindDirection windDirection = static_cast<WindDirection>((int)windDirectionRounded);
     return windDirection;
-}
-
-bool generateForecast(CastOutput& castOutput, int month, float windDir, Hemisphere where) {
-    WindDirection windDirection = degreesToWindDirection(windDir);
-    return generateForecast(castOutput, month, windDirection, where);
 }
 
 bool generateForecast(CastOutput& castOutput, int month,

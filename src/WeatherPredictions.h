@@ -29,12 +29,15 @@
         W = 12,
         WNW = 13,
         NW = 14,
-        NNW = 15
+        NNW = 15,
+        CALM = 16
     } WindDirection;
 
     typedef enum PressureTrend {
         STEADY = 0, UP = 1, DOWN = 2, UNKNOWN = 3
     } PressureTrend;
+
+    void initWeatherPredictionsBuffer(bool initialBoot);
 
     //
     // TODO: Setup to take elevation in meters/Hemisphere from #define or flash also upper/lower pressure bounds
@@ -46,9 +49,7 @@
     // Record a sea-level normalized pressure reading
     void recordPressureReading(float pressureInHpa);
 
-    // Generate a forecast given month of year 1-12 wind direction 0-359 and where Hemisphere:NORTH/SOUTH
-    // returns true if forecast generated else false (awaiting more data)
-    bool generateForecast(CastOutput& castOutput, int month, float windDir, Hemisphere where);
+    WindDirection degreesToWindDirection(float windDir);
 
     // Generate a forecast given month of year 1-12 wind direction 0-359 and where Hemisphere:NORTH/SOUTH
     // returns true if forecast generated else false (awaiting more data)
