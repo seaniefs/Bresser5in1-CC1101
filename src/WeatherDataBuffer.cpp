@@ -377,19 +377,19 @@ static void internalRecordIntermediateReading(WeatherData weatherData) {
 }
 
 void recordIntermediateReading(WeatherData weatherData) {
-    Serial.printf("Record Intermediate - About to Acquire Semaphore\n");
+    //Serial.printf("Record Intermediate - About to Acquire Semaphore\n");
     if(xSemaphoreTake(_lock, portMAX_DELAY) == pdTRUE) {
-        Serial.printf("Record Intermediate - Acquired Semaphore\n");
+        //Serial.printf("Record Intermediate - Acquired Semaphore\n");
         internalRecordIntermediateReading(weatherData);
         xSemaphoreGive(_lock);
-        Serial.printf("Record Intermediate - Released Semaphore\n");
+        //Serial.printf("Record Intermediate - Released Semaphore\n");
     }
 }
 
 void appendWeatherDataEntry(WeatherData weatherData) {
-    Serial.printf("Append - About to get Semaphore\n");
+    //Serial.printf("Append - About to get Semaphore\n");
     if(xSemaphoreTake(_lock, portMAX_DELAY) == pdTRUE) {
-        Serial.printf("Append - Got Semaphore\n");
+        //Serial.printf("Append - Got Semaphore\n");
         // If full then remove last entry...
         if(itemsInUse == totalEntries) {
             WeatherDataEntry dummyEntry;
@@ -430,7 +430,7 @@ void appendWeatherDataEntry(WeatherData weatherData) {
         internalLimitWeatherDataIndexes();
         resetAccumulatedReadings();
         xSemaphoreGive(_lock);
-        Serial.printf("Append - Released Semaphore\n");
+        //Serial.printf("Append - Released Semaphore\n");
     }
     else {
         Serial.printf("Failed to acquire semaphore in: %s\n", __func__);

@@ -28,10 +28,10 @@
 // then use that to determine the trend
 
 // NOTE: Assumes 6 readings an hour; naive and needs to be configurable!
-const int        normalizedPressureArrayItems = 18;
-/*RTC_NOINIT_ATTR*/ static float     normalizedPressureArray[normalizedPressureArrayItems] = { 0 };
-/*RTC_NOINIT_ATTR*/ static int       nextWritingIndex = 0;
-/*RTC_NOINIT_ATTR*/ static int       recordedReadings = 0;
+const int                        normalizedPressureArrayItems = 18;
+RTC_NOINIT_ATTR static float     normalizedPressureArray[normalizedPressureArrayItems] = { 0 };
+RTC_NOINIT_ATTR static int       nextWritingIndex = 0;
+RTC_NOINIT_ATTR static int       recordedReadings = 0;
 
 // ---- 'environment' variables ------------
 const float ukBaroTop = _BAROMETER_HIGH_HPA_;	// upper limits of your local 'weather window' (1050.0 hPa for UK)
@@ -62,15 +62,15 @@ static const int fall_options[] = {
 };
 
 void initWeatherPredictionsBuffer(bool initialBoot) {
-    //if (initialBoot) {
+    if (initialBoot) {
         Serial.println("Initializing weather predictions buffer...\n");
         memset(normalizedPressureArray, 0, sizeof(normalizedPressureArrayItems));
         nextWritingIndex = 0;
         recordedReadings = 0;
-    //}
-    //else {
-    //    Serial.println("Not initializing weather predictions buffer; subsequent boot...\n");
-    //}
+    }
+    else {
+        Serial.println("Not initializing weather predictions buffer; subsequent boot...\n");
+    }
 }
 
 float altitudeNormalizedPressure(float pressureInHpa, float tempInC) {

@@ -469,7 +469,7 @@ void setup() {
     setHostname("ESP32-WeatherMonitor");
     auto reset_reason = esp_reset_reason();
     auto initialBoot = true;
-    if(reset_reason == ESP_RST_SW || reset_reason != ESP_RST_DEEPSLEEP) {
+    if(reset_reason == ESP_RST_SW || reset_reason == ESP_RST_DEEPSLEEP) {
       initialBoot = false;
     }
     initWeatherDataBuffer();
