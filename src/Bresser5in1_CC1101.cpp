@@ -38,6 +38,7 @@ typedef enum SamplingState {
 } SamplingState;
 
 static SamplingState samplingState = INITIAL_WIFI_CONNECTION;
+static SamplingState oldSamplingState = SLEEP_UNTIL_TIME_SLOT;
 static const int     sleepTimeMinutes = 10;
 static const int     intermediateSleepTimeMinutes = 2;
 static int32_t       wifiReinitAttempts = 0;
@@ -482,14 +483,20 @@ void loop() {
 
     switch(samplingState) {
       case INITIAL_WIFI_CONNECTION:
-        Serial.printf("INITIAL_WIFI_CONNECTION\n");
+        if (samplingState != oldSamplingState) {
+          Serial.printf("INITIAL_WIFI_CONNECTION\n");
+          oldSamplingState = samplingState;
+        }
         if(handleWifiConnection()) {
           samplingState = SLEEP_UNTIL_TIME_SLOT;
           Serial.printf("Connected to WiFi - OK\n");
         }
         break;
       case REINIT_WIFI_CONNECTION:
-        Serial.printf("REINIT_WIFI_CONNECTION\n");
+        if (samplingState != oldSamplingState) {
+          Serial.printf("REINIT_WIFI_CONNECTION\n");
+          oldSamplingState = samplingState;
+        }
         if (handleWifiConnection()) {
           samplingState = AWAIT_TIME_SLOT;
           if (lightSlept == true) {
@@ -521,7 +528,10 @@ void loop() {
         break;
       case AWAIT_TIME_SLOT: {
           struct tm timeinfo;
-          Serial.printf("AWAIT_TIME_SLOT\n");
+          if (samplingState != oldSamplingState) {
+            Serial.printf("AWAIT_TIME_SLOT\n");
+            oldSamplingState = samplingState;
+          }
           if(getLocalTime(&timeinfo)) {
             uint64_t currentTime = assembleTargetTime(timeinfo, 0);
             if (currentTime >= targetWakeTime) {
@@ -536,7 +546,10 @@ void loop() {
         }
         break;
       case CAPTURE_WEATHER_DATA: {
-          Serial.printf("CAPTURE_WEATHER_DATA\n");
+          if (samplingState != oldSamplingState) {
+            Serial.printf("CAPTURE_WEATHER_DATA\n");
+            oldSamplingState = samplingState;
+          }
           if(capture(intermediateReading)) {
             if (intermediateReading) {
               Serial.printf("Intermediate reading - sleeping until next time slot.\n");
@@ -547,14 +560,13 @@ void loop() {
               samplingState = SEND_WEATHER_DATA;
             }
           }
-          else {
-              Serial.printf("Capture failed?!\n");
-              delay(1000);
-          }
         }
         break;
       case SEND_WEATHER_DATA: {
-          Serial.printf("SEND_WEATHER_DATA\n");
+          if (samplingState != oldSamplingState) {
+            Serial.printf("SEND_WEATHER_DATA\n");
+            oldSamplingState = samplingState;
+          }
           Serial.printf("Attempting to send data...\n");
           send();
           Serial.printf("Attempted to send data - signalling sleep.\n");
@@ -562,7 +574,10 @@ void loop() {
         }
         break;
       case SLEEP_UNTIL_TIME_SLOT: {
-          Serial.printf("SLEEP_UNTIL_TIME_SLOT\n");
+          if (samplingState != oldSamplingState) {
+            Serial.printf("SLEEP_UNTIL_TIME_SLOT\n");
+            oldSamplingState = samplingState;
+          }
           struct tm timeinfo;
           if(getLocalTime(&timeinfo)) {
             // Sleep until the next 2 minute window
