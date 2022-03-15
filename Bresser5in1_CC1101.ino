@@ -12,7 +12,7 @@ https://github.com/merbanan/rtl_433/blob/master/src/devices/bresser_6in1.c
 02/01/22 - Sean Siford
 15/03/22 - Matthias Prinke - Added decodeBresser6In1Payload() and helper functions 
                              from rtl_433 project. 
-                             The "WI-FI Colour Weather Station + 5in1 Multisensor"
+                             The Bresser "WI-FI Colour Weather Station + 5in1 Multisensor"
                              (Article number 7002585) uses the according protocol. 
 */
 
