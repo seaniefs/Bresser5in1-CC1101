@@ -1,5 +1,5 @@
 > :warning: This repository is deprecated and no longer maintained. 
-> The recommended alternative is [BresserWeatherSensorReceiver](/matthias-bs/BresserWeatherSensorReceiver)
+> The recommended alternative is [BresserWeatherSensorReceiver](https://github.com/matthias-bs/BresserWeatherSensorReceiver)
 > which provides a much cleaner design and allows to use an SX1276 or RFM95W radio receiver as an alternative to the CC1101.
 
 # Bresser5in1-CC1101
