@@ -21,6 +21,11 @@ https://github.com/merbanan/rtl_433/blob/master/src/devices/bresser_5in1.c
 #include "WeatherDataBuffer.h"
 #include "PressureSensor.h"
 #include "WeatherPredictions.h"
+#include "google_service_account.h"
+
+#define _DEBUG_MODE_
+//#define _NO_SEND_DATA_
+//#define _EMULATE_RECV_
 
 CC1101 radio = new Module(PIN_CC1101_CS, PIN_CC1101_GDO0, RADIOLIB_NC, PIN_CC1101_GDO2);
 
@@ -176,10 +181,15 @@ static bool emitBufferedDataEntry() {
       { pressure,  true },
       { forecast,  true }
     };
-    if(appendRowToSheet(rowData, sizeof(rowData) / sizeof(SheetDataItem))) {
-      confirmPeekWeatherDataEntry(entryRead);
+    #ifdef _NO_SEND_DATA_
       sent = true;
-    }
+    #else
+      if(appendRowToSheet("Sheet1", rowData, sizeof(rowData) / sizeof(SheetDataItem))) {
+        updateRowInSheet("Current", 1, 0, rowData, sizeof(rowData) / sizeof(SheetDataItem));
+        confirmPeekWeatherDataEntry(entryRead);
+        sent = true;
+      }
+    #endif
   }
   return sent;
 }
@@ -275,9 +285,16 @@ static bool capture(bool intermediateReading) {
           #endif
 
           // Decode the information - skip the last sync byte we use to check the data is OK
+          #ifdef _DEBUG_MODE_
+            Serial.println("[CC1101] - Decoding payload");
+          #endif
           WeatherData weatherData = { 0 };
           weatherData.forecast = 0;
           if(decodeBresser5In1Payload(&recvData[1], sizeof(recvData) - 1, &weatherData) == DECODE_OK) {
+
+            #ifdef _DEBUG_MODE_
+              Serial.println("[CC1101] - Decoded payload - OK - getting time");
+            #endif
 
             struct tm timeinfo = {0};
             getLocalTime(&timeinfo);
@@ -285,6 +302,9 @@ static bool capture(bool intermediateReading) {
             // If pressure is available - read it
             if(pressureSensorAvailable()) {
               float rawPressureData = 0;
+              #ifdef _DEBUG_MODE_
+                Serial.println("Reading pressure data.");
+              #endif
               readPressureSensorHpa(rawPressureData);
               weatherData.pressure = altitudeNormalizedPressure(rawPressureData, weatherData.temp_c);
               if (!intermediateReading) {

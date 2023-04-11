@@ -49,26 +49,33 @@ static bool pressureSensorInit = false;
         closePressureSensor();
         bmp280 = new BMP280_DEV(BMP280_PIN_SDA, BMP280_PIN_SCL);
         pressureSensorInit = bmp280->begin(Mode::SLEEP_MODE, BMP280_I2C_ALT_ADDR);
-        bmp280->setTempOversampling(Oversampling::OVERSAMPLING_X2);
-        bmp280->setPresOversampling(Oversampling::OVERSAMPLING_X16);
-        bmp280->setIIRFilter(IIRFilter::IIR_FILTER_16);
-        bmp280->setTimeStandby(TimeStandby::TIME_STANDBY_1000MS);
         return pressureSensorInit;
     }
     bool readPressureSensorHpa(float& output) {
         bool  read = false;
         float localPressure = 0;
         if (pressureSensorInit) {
-            bmp280->startForcedConversion();
-            // Wait for up to 5 seconds to get a reading...
-            for(int i = 0 ; i < 20 && read == false ; i++) {
+            bmp280->reset();
+            bmp280->setTempOversampling(Oversampling::OVERSAMPLING_X2);
+            bmp280->setPresOversampling(Oversampling::OVERSAMPLING_X16);
+            bmp280->setIIRFilter(IIRFilter::IIR_FILTER_16);
+            bmp280->setTimeStandby(TimeStandby::TIME_STANDBY_1000MS);
+            bmp280->startNormalConversion();
+            delay(2000);
+            // Need 2 readings; discard the 1st...
+            int reads = 0;
+            for(int i = 0 ; i < 80 && read == false ; i++) {
                 if(bmp280->getPressure(localPressure)) {
-                    read = true;
+                    reads++;
+                    read = reads > 1;
+                    Serial.print(" P - OK");
                 }
                 else {
                     delay(250);
+                    Serial.print(" PX");
                 }
             }
+            bmp280->stopConversion();
         }
         output = localPressure;
         return read;

@@ -1,6 +1,6 @@
 #ifndef _WIFIHANDLER_H_
 
-    #include <BearSSLClient.h>
+    #include <WiFiClientSecure.h>
 
     #define _WIFIHANDLER_H_ 1
 
@@ -17,6 +17,6 @@
     WifiConnectionStatus getConnectionStatus();
     bool handleWifiConnection();
     bool disconnectWifi();
-    BearSSLClient *obtainSecureWifiClient();
+    WiFiClientSecure *obtainSecureWifiClient();
 
 #endif

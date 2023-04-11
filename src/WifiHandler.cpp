@@ -1,11 +1,11 @@
 #include "esp_wifi.h"
 #include "WifiHandler.h"
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <ESPmDNS.h>
 #include <stdbool.h>
-#include <ArduinoBearSSL.h>
 
-WiFiClient *pClient = nullptr;
+extern const uint8_t rootca_crt_bundle_start[] asm("_binary_data_cert_x509_crt_bundle_bin_start");
 
 volatile WifiConnectionStatus wifiConnectionStatus = WIFI_CONN_STATUS_NOT_CONNECTED;
 volatile uint64_t lastWifiConnectionTime = 0;
@@ -22,7 +22,7 @@ volatile bool     ntpInit = false;
 volatile bool     ntpClockInit = false;
 volatile bool     ntpTimeSet = false;
 volatile uint64_t lastNtpClockCheck = 0;
-volatile BearSSLClient *pSslClient = nullptr;
+volatile WiFiClientSecure *pSslClient = nullptr;
 
 static void time_sync_complete(struct timeval *tv) {
   if(tv->tv_sec > (24 * 60 * 60)) {
@@ -58,13 +58,9 @@ bool disconnectWifi() {
       mdnsInit = false;
     }
     if (pSslClient != nullptr) {
+      const_cast<WiFiClientSecure *>(pSslClient)->stop();
       delete pSslClient;
       pSslClient = nullptr;
-    }
-    if (pClient != nullptr) {
-      pClient->stop();
-      delete pClient;
-      pClient = nullptr;
     }
     WiFi.disconnect();
     ntpInit = false;
@@ -78,8 +74,8 @@ bool disconnectWifi() {
     return true;
 }
 
-BearSSLClient *obtainSecureWifiClient() {
-  return const_cast<BearSSLClient *>(pSslClient);
+WiFiClientSecure *obtainSecureWifiClient() {
+  return const_cast<WiFiClientSecure *>(pSslClient);
 }
 
 WifiConnectionStatus getConnectionStatus() {
@@ -135,7 +131,6 @@ bool checkNtpClockSet() {
         getLocalTime(&timeinfo);
         strftime(dateTime, 20, "%d/%b/%y %H:%M:%S", &timeinfo);
         Serial.printf("Local Time is: %s\n", dateTime);
-        ArduinoBearSSL.onGetTime(getSslTime);
         ntpInit = true;    
     }
     return true;
@@ -194,7 +189,6 @@ bool handleWifiConnection() {
       esp_wifi_set_ps(WIFI_PS_NONE);
       //
       WiFi.persistent(false);
-      //sslClient.setInsecure(BearSSLClient::SNI::Insecure);
       WiFi.begin(currentWifiSsid, currentWifiPassword);
       WiFi.persistent(false);
       wifiConnectionStatus = WIFI_CONN_STATUS_CONNECTING;
@@ -256,12 +250,9 @@ bool handleWifiConnection() {
           delete pSslClient;
           pSslClient = nullptr;
         }
-        if (pClient != nullptr) {
-          delete pClient;
-          pClient = nullptr;
-        }
-        pClient = new WiFiClient();
-        pSslClient = new BearSSLClient(*pClient);
+        Serial.println("Init SSL...");
+        pSslClient = new WiFiClientSecure();
+        const_cast<WiFiClientSecure *>(pSslClient)->setCACertBundle(rootca_crt_bundle_start);
         return true;
     }
   }

@@ -16,7 +16,8 @@
     bool checkGoogleAccessTokenReady();
     bool checkGoogleAccessTokenReady(bool forceRefresh);
     String getGoogleAccessToken();
-
-    bool appendRowToSheet(SheetDataItem *pSheetData, uint8_t columns);
+    // TODO: Need row number - column number A = 0, Z = 25 - AA = 26 - set of sheet data items for x columns; contiguous
+    bool updateRowInSheet(const char *sheetName, uint32_t rowNumber, uint32_t columnNumber, SheetDataItem *pSheetData, uint8_t columns);
+    bool appendRowToSheet(const char *sheetName, SheetDataItem *pSheetData, uint8_t columns);
 
 #endif
