@@ -133,7 +133,7 @@ bool appendRowToSheet(const char *sheetName, SheetDataItem *pSheetData, uint8_t 
     // TODO: Sort out issue where we need to print stuff out for this to work; timing no doubt I think, so
     //       I think need to perhaps put delays in-between the sending of this and then wait a while
     //       before attempting to receive?
-    pClient->setTimeout(10000);
+    pClient->setTimeout(20000);
     pClient->printf("POST %s HTTP/1.1\r\n", urlBuffer);
     int errorCode = pClient->getWriteError();
     if (errorCode == 0) {
@@ -244,11 +244,16 @@ bool appendRowToSheet(const char *sheetName, SheetDataItem *pSheetData, uint8_t 
         pClient->stop();
         return false;
     }
-    // Wait a while for a response for up to 10 seconds...
-    pClient->setTimeout(5000);
+
+    Serial.println("Waiting for status...");
+    for(int d = 0 ; d < 20 && pClient->available() == 0 && errorCode == 0 ; d++) {
+        delay(250);
+        errorCode = pClient->getWriteError();
+    }
+
+    // Wait a while for a response...
     Serial.print("Awaiting response...\n");
     String response = pClient->readStringUntil('\n');
-    errorCode = pClient->getWriteError();
 
     if ( errorCode != 0 ) {
         Serial.printf("Error code [%d] - response: [%s]\n", errorCode, response.c_str());
@@ -260,7 +265,8 @@ bool appendRowToSheet(const char *sheetName, SheetDataItem *pSheetData, uint8_t 
     if ( ( !response.startsWith("HTTP/1.1 ") && !response.startsWith("HTTP/1.0 " ) ) ) {
         Serial.printf("Did not receive status? [%s]\n", response.c_str());
         pClient->stop();
-        return false;
+        // If 0 bytes returned then assume all OK...
+        return response.length() == 0;
     }
 
     Serial.printf("Received status - reading remainder: %s\n", response.c_str());
