@@ -6,6 +6,7 @@
 
     typedef struct WeatherData_S {
         uint8_t sensor_id;
+        float   int_temp_c;
         float   temp_c;
         int     humidity;
         float   wind_direction_deg;

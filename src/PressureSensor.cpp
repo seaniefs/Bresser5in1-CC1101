@@ -53,31 +53,136 @@ static bool pressureSensorInit = false;
     }
     bool readPressureSensorHpa(float& output) {
         bool  read = false;
+        bool  doReset = true;
         float localPressure = 0;
         if (pressureSensorInit) {
-            bmp280->reset();
-            bmp280->setTempOversampling(Oversampling::OVERSAMPLING_X2);
-            bmp280->setPresOversampling(Oversampling::OVERSAMPLING_X16);
-            bmp280->setIIRFilter(IIRFilter::IIR_FILTER_16);
-            bmp280->setTimeStandby(TimeStandby::TIME_STANDBY_1000MS);
-            bmp280->startNormalConversion();
-            delay(2000);
             // Need 2 readings; discard the 1st...
             int reads = 0;
-            for(int i = 0 ; i < 80 && read == false ; i++) {
+            for(int i = 0 ; i < 160 && read == false ; i++) {
+                if (doReset) {
+                    if (i > 0) {
+                        bmp280->stopConversion();
+                    }
+                    bmp280->reset();
+                    delay(100);
+                    bmp280->setTempOversampling(Oversampling::OVERSAMPLING_X2);
+                    bmp280->setPresOversampling(Oversampling::OVERSAMPLING_X16);
+                    bmp280->setIIRFilter(IIRFilter::IIR_FILTER_16);
+                    bmp280->setTimeStandby(TimeStandby::TIME_STANDBY_4000MS);
+                    bmp280->startNormalConversion();
+                    delay(100);
+                    doReset = false;
+                }
                 if(bmp280->getPressure(localPressure)) {
                     reads++;
+                    doReset = true;
                     read = reads > 1;
                     Serial.print(" P - OK");
+                    Serial.print(localPressure);
+                    Serial.print(" ");
                 }
                 else {
-                    delay(250);
+                    delay(1000);
                     Serial.print(" PX");
                 }
             }
             bmp280->stopConversion();
         }
         output = localPressure;
+        return read;
+    }
+
+    bool readPressureSensorHpaAndTemp(float& hpaOutput, float &tempOutput) {
+        bool  read = false;
+        bool  doReset = true;
+        float localPressure = 0;
+        float localTemp = -63;
+        if (pressureSensorInit) {
+            // Need 2 readings; discard the 1st...
+            int tempReads = 0;
+            int pressureReads = 0;
+            int32_t endMillis = millis() + 120000;
+            for(int i = 0 ; millis() < endMillis && read == false ; i++) {
+                if (doReset) {
+                    if (i > 0) {
+                        bmp280->stopConversion();
+                    }
+                    bmp280->reset();
+                    delay(100);
+                    bmp280->setTempOversampling(Oversampling::OVERSAMPLING_X2);
+                    bmp280->setPresOversampling(Oversampling::OVERSAMPLING_X16);
+                    bmp280->setIIRFilter(IIRFilter::IIR_FILTER_16);
+                    bmp280->setTimeStandby(TimeStandby::TIME_STANDBY_4000MS);
+                    bmp280->startNormalConversion();
+                    delay(100);
+                    doReset = false;
+                }
+                if(pressureReads < 2) {
+                    if (bmp280->getPressure(localPressure)) {
+                    pressureReads++;
+                    doReset = true;
+                    Serial.print(" P - OK");
+                    Serial.print(localPressure);
+                    Serial.print(" ");
+                    }
+                }
+                if(tempReads < 2) {
+                    if(bmp280->getTemperature(localTemp)) {
+                        tempReads++;
+                        doReset = true;
+                        Serial.print(" T - OK");
+                        Serial.print(localTemp);
+                        Serial.print(" ");
+                    }
+                }
+                read = pressureReads > 1 && tempReads > 1;
+                delay(10);
+            }
+            bmp280->stopConversion();
+        }
+        hpaOutput = localPressure;
+        tempOutput = localTemp;
+        return read;
+    }
+
+    bool readPressureSensorTemp(float& output) {
+        bool  read = false;
+        bool  doReset = true;
+        float localTemp = -32;
+        if (pressureSensorInit) {
+            // Need 2 readings; discard the 1st...
+            int reads = 0;
+            for(int i = 0 ; i < 160 && read == false ; i++) {
+                if (doReset) {
+                    if (i > 0) {
+                        bmp280->stopConversion();
+                    }
+                    bmp280->reset();
+                    delay(100);
+                    bmp280->setTempOversampling(Oversampling::OVERSAMPLING_X2);
+                    bmp280->setPresOversampling(Oversampling::OVERSAMPLING_X16);
+                    bmp280->setIIRFilter(IIRFilter::IIR_FILTER_16);
+                    bmp280->setTimeStandby(TimeStandby::TIME_STANDBY_4000MS);
+                    bmp280->startNormalConversion();
+                    delay(100);
+                    doReset = false;
+                }
+                if(bmp280->getTemperature(localTemp)) {
+                    reads++;
+                    doReset = true;
+                    read = reads > 1;
+                    Serial.print(" LT - OK");
+                    Serial.print(localTemp);
+                    Serial.print(" ");
+                }
+                else {
+                    delay(1000);
+                    Serial.print(" LTX");
+                }
+            }
+            bmp280->stopConversion();
+        }
+        output = localTemp;
         return read;
     }
     void closePressureSensor() {

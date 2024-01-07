@@ -154,6 +154,7 @@ static bool emitBufferedDataEntry() {
     static char direction[12];
     static char pressure[12];
     static char forecast[12];
+    static char internalTemp[8];
     sprintf(dateItem, "%02d/%02d/%02d", dataEntry.year, dataEntry.month, dataEntry.day);
     sprintf(timeItem, "%02d:%02d:%02d", dataEntry.hour, dataEntry.minute, dataEntry.second);
     sprintf(timestampItem, "%02d-%02d-%02d", dataEntry.year, dataEntry.month, dataEntry.day);
@@ -168,18 +169,20 @@ static bool emitBufferedDataEntry() {
     sprintf(direction, "%.2f", dataEntry.weatherData.wind_direction_deg);
     sprintf(pressure, "%.2f", dataEntry.weatherData.pressure);
     sprintf(forecast, "%d", dataEntry.weatherData.forecast);
+    sprintf(internalTemp, "%.1f", dataEntry.weatherData.int_temp_c);
     SheetDataItem rowData[] = {
-      { dateItem, false },
-      { timeItem, false },
+      { dateItem,      false },
+      { timeItem,      false },
       { timestampItem, false },
-      { humidity, true },
-      { rain, true },
-      { temp, true },
-      { wind, true },
-      { gust, true },
-      { direction, true },
-      { pressure,  true },
-      { forecast,  true }
+      { humidity,      true },
+      { rain,          true },
+      { temp,          true },
+      { wind,          true },
+      { gust,          true },
+      { direction,     true },
+      { pressure,      true },
+      { forecast,      true },
+      { internalTemp,  true }
     };
     #ifdef _NO_SEND_DATA_
       sent = true;
@@ -302,11 +305,13 @@ static bool capture(bool intermediateReading) {
             // If pressure is available - read it
             if(pressureSensorAvailable()) {
               float rawPressureData = 0;
+              float rawInternalTempData = 0;
               #ifdef _DEBUG_MODE_
                 Serial.println("Reading pressure data.");
               #endif
-              readPressureSensorHpa(rawPressureData);
+              readPressureSensorHpaAndTemp(rawPressureData, rawInternalTempData);
               weatherData.pressure = altitudeNormalizedPressure(rawPressureData, weatherData.temp_c);
+              weatherData.int_temp_c = rawInternalTempData;
               if (!intermediateReading) {
                 recordPressureReading(weatherData.pressure);
                 CastOutput outputCast = { 0 };
@@ -329,11 +334,12 @@ static bool capture(bool intermediateReading) {
             static char dateTime[24];
             strftime(dateTime, 20, "%y-%m-%dT%H:%M:%S", &timeinfo);
 
-            printf("[%s] [Bresser-5in1 (%d)] Batt: [%s] Temp: [%.1fC] Hum: [%d] WGust: [%.1f mph] WSpeed: [%.1f mph] WDir: [%.1f] Rain [%.1f mm] Pressure: [%.1f hPa] Forecast: [%d]\n",
+            printf("[%s] [Bresser-5in1 (%d)] Batt: [%s] Temp: [%.1fC] Int Temp: [%.1fC] Hum: [%d] WGust: [%.1f mph] WSpeed: [%.1f mph] WDir: [%.1f] Rain [%.1f mm] Pressure: [%.1f hPa] Forecast: [%d]\n",
                   dateTime,
                   weatherData.sensor_id,
                   weatherData.battery_ok ? "OK" : "Low",
                   weatherData.temp_c,
+                  weatherData.int_temp_c,
                   weatherData.humidity,
                   weatherData.wind_gust_meter_sec * METERS_SEC_TO_MPH,
                   weatherData.wind_avg_meter_sec * METERS_SEC_TO_MPH,
@@ -384,8 +390,10 @@ static bool capture(bool intermediateReading) {
     // If pressure is available - read it
     if(pressureSensorAvailable()) {
       float rawPressureData = 0;
-      readPressureSensorHpa(rawPressureData);
+      float rawInternalTempData = 0;
+      readPressureSensorHpaAndTemp(rawPressureData, rawInternalTempData);
       weatherData.pressure = altitudeNormalizedPressure(rawPressureData, weatherData.temp_c);
+      weatherData.int_temp_c = rawInternalTempData;
       if (!intermediateReading) {
         recordPressureReading(weatherData.pressure);
         CastOutput outputCast = { 0 };
@@ -408,11 +416,12 @@ static bool capture(bool intermediateReading) {
     static char dateTime[24];
     strftime(dateTime, 20, "%y-%m-%dT%H:%M:%S", &timeinfo);
 
-    Serial.printf("[%s] [Bresser-5in1 (%d)] Batt: [%s] Temp: [%.1fC] Hum: [%d] WGust: [%.1f mph] WSpeed: [%.1f mph] WDir: [%.1f] Rain [%.1f mm] Pressure: [%.1f hPa] Forecast: [%d]\n",
+    Serial.printf("[%s] [Bresser-5in1 (%d)] Batt: [%s] Temp: [%.1fC] Int Temp: [%.1fC] Hum: [%d] WGust: [%.1f mph] WSpeed: [%.1f mph] WDir: [%.1f] Rain [%.1f mm] Pressure: [%.1f hPa] Forecast: [%d]\n",
           dateTime,
           weatherData.sensor_id,
           weatherData.battery_ok ? "OK" : "Low",
           weatherData.temp_c,
+          weatherData.int_temp_c,
           weatherData.humidity,
           weatherData.wind_gust_meter_sec * METERS_SEC_TO_MPH,
           weatherData.wind_avg_meter_sec * METERS_SEC_TO_MPH,

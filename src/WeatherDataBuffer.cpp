@@ -6,17 +6,18 @@
 // TODO: Rationalised version - 8 bits free for "reserved" data
 // could record pressure change in 2 bits rising, falling, steady leaving 6 bits
 // Pressure trend - CC      = 00 - Awaiting 01 - Up 10 - Down 11 - Steady
-//                  IIIIIII = 7-bit ID (0-127)
-//                  WWW     = Weather Type 
-//                            0 - Unknown  1 - Sunny  2 - Sunny Cloudy
-//                            3 - Cloudy   4 - Rainy  5 - Worsening
+//                  IIII = 4-bit ID (0-15)
+//              NNNNNNNN = 8 bit internal temp id (63.5 to -63.5 in .5C increments)
+//                  WWW   = Weather Type 
+//                          0 - Unknown  1 - Sunny  2 - Sunny Cloudy
+//                          3 - Cloudy   4 - Rainy  5 - Worsening
 /*
 	   00       01       02       03		
 	76543210 76543210 76543210 76543210		
 00	YYYYYYYM MMMDDDDD HHHHHMMM MMMSSSSS		
 01  TTTTTTTT 1111RRRR RRRR1111 PPPPPPPP
 02  PPP11112 222HHHHH HHGGGGGG G1111SSS
-03  SSSS1111 DDDDCC-- IIIIIIII WWWWWWWW
+03  SSSS1111 DDDDNNNN NNNNIIII WWWWWWWW
 */
 
 // TODO: Consider only recording 2DP of rain and use other 4 bits to allow 12 bits of rain in mm to be recorded
@@ -243,15 +244,16 @@ static void internalDecodeWeatherDataEntry(WeatherDataEntry *pDataEntry, uint8_t
 
     uint32_t speedPacked = ((*pSourceDataArray) << 20) & 0x700000;
     pSourceDataArray++;
-    // Pressure trend and id not yet encoded so not decoded.
-    // 03 SSSS1111 DDDDCC-- IIIIIIII WWWWWWWW
+    // N - iNternal temp * 2 which gives - +63.5 / -63.5 - I = ID 0-F
+    // 03 SSSS1111 DDDDNNNN NNNNIIII WWWWWWWW
     speedPacked |= ((*pSourceDataArray) >> 12) & 0xFF000;
     pDataEntry->weatherData.wind_avg_meter_sec = int32ToFloat(speedPacked, 0);
 
     uint32_t windDirectionEncoded = ((*pSourceDataArray) & 0xF00000) >> 20;
     float windDirection = windDirectionEncoded * windDirectionDivision;
     pDataEntry->weatherData.wind_direction_deg = windDirection;
-
+    int8_t unpackedInternalTemp = ((*pSourceDataArray) & 0xFF000) >> 12;
+    pDataEntry->weatherData.int_temp_c = unpackedInternalTemp / 2.0;
     pDataEntry->weatherData.forecast = (*pSourceDataArray) & 0xFF;
 }
 
@@ -295,7 +297,8 @@ static void internalEncodeWeatherDataEntry(WeatherDataEntry *pDataEntry, uint8_t
     uint32_t windSpeedPacked = floatToInt32(pDataEntry->weatherData.wind_avg_meter_sec, 0);
     secondWord |= (windSpeedPacked >> 20) & 0x7;
 
-    // 03 SSSS1111 DDDDCC-- IIIIIIII WWWWWWWW
+    // 03 SSSS1111 DDDDNNNN NNNNIIII WWWWWWWW - N internal temperature
+    // N - iNternal temp * 2 which gives - +63.5 / -63.5 - I = ID 0-F
     uint32_t thirdWord = (windSpeedPacked << 12) & 0xFF000000;
 
     float    windDirectionRounded = (pDataEntry->weatherData.wind_direction_deg) + windDirectionRounding;
@@ -304,6 +307,8 @@ static void internalEncodeWeatherDataEntry(WeatherDataEntry *pDataEntry, uint8_t
     uint32_t windDirectionPacked = (uint32_t)windDirectionRounded;
     thirdWord |= (windDirectionPacked << 20) & 0xF00000;
     thirdWord |= (pDataEntry->weatherData.forecast & 0xFF);
+    int32_t packedInternalTemp = (pDataEntry->weatherData.int_temp_c * 2);
+    thirdWord |= (packedInternalTemp << 12) & 0xFF000;
 
     uint32_t *pOutputData = (uint32_t *)pDestData;
     pOutputData[0] = packedTime;
